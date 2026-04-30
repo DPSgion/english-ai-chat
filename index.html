@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Grammar Teacher - Chat Mode</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .chat-container {
+            height: calc(100vh - 180px);
+        }
+
+        .recording {
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                transform: scale(1);
+                opacity: 1;
+            }
+
+            50% {
+                transform: scale(1.05);
+                opacity: 0.8;
+            }
+
+            100% {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+
+        /* Custom scrollbar cho sạch */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #4b5563;
+            border-radius: 10px;
+        }
+
+        #record-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            filter: grayscale(1);
+        }
+    </style>
+</head>
+
+<body class="bg-gray-900 text-gray-100 font-sans">
+    <div class="max-w-3xl mx-auto h-screen flex flex-col p-4">
+        <header class="text-center py-4 border-b border-gray-800">
+            <h1 class="text-xl font-bold text-blue-400">Trò chuyện nèee</h1>
+        </header>
+
+        <!-- Chat Display -->
+        <div id="chat-box" class="chat-container overflow-y-auto flex flex-col gap-6 p-4 my-4">
+            <div class="self-center text-gray-600 text-xs bg-gray-800 px-3 py-1 rounded-full">
+                Hệ thống đã sẵn sàng. Bấm nút để bắt đầu nói.
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="mt-auto pb-4">
+            <div class="flex items-center justify-center">
+                <button id="record-btn"
+                    class="bg-blue-600 hover:bg-blue-700 text-white px-10 py-4 rounded-full font-bold shadow-lg transition-all flex items-center gap-3 active:scale-95">
+                    <div id="status-icon" class="w-3 h-3 bg-white rounded-full"></div>
+                    <span id="btn-text">Start Recording</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const recordBtn = document.getElementById('record-btn');
+        const btnText = document.getElementById('btn-text');
+        const statusIcon = document.getElementById('status-icon');
+        const chatBox = document.getElementById('chat-box');
+
+        let mediaRecorder;
+        let audioChunks = [];
+        let isRecording = false;
+
+        // Webhook URL
+        const N8N_WEBHOOK_URL = 'http://localhost:5678/webhook/voice-input';
+
+
+        recordBtn.onclick = async () => {
+            if (!isRecording) {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+                    audioChunks = [];
+                    mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
+                    mediaRecorder.onstop = sendData;
+                    mediaRecorder.start();
+
+                    isRecording = true;
+                    btnText.innerText = "Stop & Audit";
+                    statusIcon.classList.add('bg-red-500', 'recording');
+                } catch (err) {
+                    alert("Chưa cấp quyền Micro rồi ông giáo ơi!");
+                }
+            } else {
+                mediaRecorder.stop();
+                isRecording = false;
+                btnText.innerText = "Analyzing...";
+                statusIcon.classList.remove('bg-red-500', 'recording');
+            }
+        };
+
+        recordBtn.onclick = async () => {
+            if (!isRecording) {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+                    audioChunks = [];
+                    mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
+                    mediaRecorder.onstop = sendData;
+                    mediaRecorder.start();
+
+                    isRecording = true;
+                    btnText.innerText = "Stop & Audit";
+                    statusIcon.classList.add('bg-red-500', 'recording');
+                } catch (err) {
+                    alert("Chưa cấp quyền Micro rồi ông giáo ơi!");
+                }
+            } else {
+                // KHI BẤM STOP:
+                mediaRecorder.stop();
+                isRecording = false;
+
+                // KHÓA NÚT NGAY LẬP TỨC
+                recordBtn.disabled = true;
+                btnText.innerText = "Analyzing...";
+                statusIcon.classList.remove('bg-red-500', 'recording');
+            }
+        };
+
+        async function sendData() {
+            const audioBlob = new Blob(audioChunks, { type: 'audio/mpeg' });
+            const formData = new FormData();
+            formData.append('data', audioBlob, 'voice.mp3');
+
+            try {
+                const response = await fetch(N8N_WEBHOOK_URL, { method: 'POST', body: formData });
+                const result = await response.json();
+
+                appendUserMessage(result.user_said, result.grammar_audit);
+                setTimeout(() => appendAIMessage(result.ai_response), 500);
+
+            } catch (error) {
+                console.error('Lỗi:', error);
+                appendSystemMessage("Lỗi rồi, check n8n đi ông giáo!");
+            } finally {
+                // KHI XỬ LÝ XONG (DÙ THÀNH CÔNG HAY LỖI):
+                // MỞ KHÓA NÚT VÀ RESET TEXT
+                recordBtn.disabled = false;
+                btnText.innerText = "Start Recording";
+            }
+        }
+
+        function appendUserMessage(text, audit) {
+            const wrapper = document.createElement('div');
+            wrapper.className = "flex flex-col items-end gap-2 self-end max-w-[85%] mb-4";
+
+            const bubble = `<div class="bg-blue-600 text-white px-4 py-2 rounded-2xl rounded-tr-none shadow-md">${text}</div>`;
+
+            // So sánh để bắt lỗi: Xóa dấu câu để so sánh chính xác hơn
+            const original = text.trim().toLowerCase().replace(/[.,!?;:]/g, "");
+            const corrected = audit.corrected_version.trim().toLowerCase().replace(/[.,!?;:]/g, "");
+            const hasError = original !== corrected;
+
+            let auditBox = '';
+            if (hasError) {
+                const errorList = audit.errors.map(err => `<li class="ml-3 mt-1">• ${err}</li>`).join('');
+                auditBox = `
+                    <div class="bg-gray-800 border border-red-900/50 p-3 rounded-xl text-[11px] w-full shadow-lg">
+                        <p class="text-red-400 font-bold uppercase text-[9px] mb-1 flex items-center">
+                            <span class="mr-1">🚨</span> Grammar Police
+                        </p>
+                        <p class="text-green-300 font-medium">✓ ${audit.corrected_version}</p>
+                        <ul class="text-gray-400 italic mt-1 list-none p-0">
+                            ${errorList}
+                        </ul>
+                    </div>
+                `;
+            }
+
+            wrapper.innerHTML = bubble + auditBox;
+            chatBox.appendChild(wrapper);
+            scrollToBottom();
+        }
+
+        function appendAIMessage(text) {
+            const div = document.createElement('div');
+            div.className = "self-start max-w-[80%] bg-gray-700 text-gray-100 px-4 py-2 rounded-2xl rounded-tl-none shadow-md border border-gray-600 mb-4";
+            div.innerText = text;
+            chatBox.appendChild(div);
+            scrollToBottom();
+        }
+
+        function appendSystemMessage(msg) {
+            const div = document.createElement('div');
+            div.className = "self-center text-red-500 text-xs italic mb-2";
+            div.innerText = msg;
+            chatBox.appendChild(div);
+        }
+
+        function scrollToBottom() {
+            chatBox.scrollTo({ top: chatBox.scrollHeight, behavior: 'smooth' });
+        }
+    </script>
+</body>
+
+</html>
